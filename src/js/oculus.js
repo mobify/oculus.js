@@ -58,16 +58,44 @@ function($) {
             $ours.on('click', onClick);
         });
 
-        this.addHandler('input', function($ours, $theirs) {
+        this.addHandler('text', function($ours, $theirs) {
+            $ours.text($theirs.text());
+        });
+
+        this.addHandler('value', function($ours, $theirs) {
+            $ours.val($theirs.val());
+
+            $theirs.on('change', function() {
+                if ($theirs.val() !== $ours.val()) {
+                    $ours.val($theirs.val());
+                }
+            });
+
             var onInputKeyUp = function() {
                 $theirs.val($ours.val());
             };
 
-            $ours.on('keyup', onInputKeyUp);
+            $ours.on('keyup change', onInputKeyUp);
         });
 
-        this.addHandler('text', function($ours, $theirs) {
-            $ours.text($theirs.text());
+        this.addHandler('state', function($ours, $theirs) {
+            var update = function() {
+                $ours.prop('disabled', $theirs.prop('disabled'));
+                $ours.prop('selected', $theirs.prop('selected'));
+                $ours.prop('checked', $theirs.prop('checked'));
+                $ours.prop('readonly', $theirs.prop('readonly'));
+
+                $ours[0].checked = $theirs[0].checked;
+            };
+
+            var observer = new MutationObserver(function() {
+                // We don't really care what mutation happened, we just want to sync everything incase
+                update();
+            });
+
+            observer.observe($theirs[0], { attributes: true, childList: false, characterData: false, subtree: false });
+
+            update();
         });
 
         this.addHandler('html', function($ours, $theirs) {
@@ -97,6 +125,10 @@ function($) {
             else if ($ours.is('select')) {
                 $ours.on('change', onSelectChange);
             }
+        });
+
+        this.addHandler('options', function($ours, $theirs) {
+            $ours.html($theirs.html());
         });
 
         this.setDefaultHandler('click');
