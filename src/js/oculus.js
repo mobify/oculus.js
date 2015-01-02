@@ -59,23 +59,108 @@ function($) {
         });
 
         this.addHandler('text', function($ours, $theirs) {
-            $ours.text($theirs.text());
+            var update = function() {
+                $ours.text($theirs.text());
+            };
+
+            var observer = new MutationObserver(function() {
+                // We don't really care what mutation happened, we just want to sync everything incase
+                update();
+            });
+
+            observer.observe($theirs[0], { attributes: true, childList: true, characterData: true, subtree: false });
+
+            update();
         });
 
         this.addHandler('value', function($ours, $theirs) {
-            $ours.val($theirs.val());
+            var theirValue;
+            var change = false;
 
-            $theirs.on('change', function() {
-                if ($theirs.val() !== $ours.val()) {
-                    $ours.val($theirs.val());
+            var onOurInputChange = function() {
+                // Check for duplicate changes
+                if (change) {
+                    change = false;
+                    return;
                 }
-            });
 
-            var onInputKeyUp = function() {
+                // Probably only need to set the value property, but we
+                // also set the attribute to be safe
                 $theirs.val($ours.val());
+
+                change = true;
+
+                $theirs.trigger('change');
             };
 
-            $ours.on('keyup change', onInputKeyUp);
+            var onOurSelectChange = function() {
+                // Check for duplicate changes
+                if (change) {
+                    change = false;
+                    return;
+                }
+
+                // Select chosen option in the linked element
+                $theirs
+                    .prop('selectedIndex', $ours.prop('selectedIndex'));
+
+                change = true;
+                
+                $theirs.trigger('change');
+            };
+
+            var onTheirInputChange = function() {
+                // Check for duplicate changes
+                if (change) {
+                    change = false;
+                    return;
+                }
+
+                theirValue = $theirs.val();
+
+                // We don't really care what mutation happened, we just want to sync everything incase
+                $ours.val(theirValue);
+
+                change = true;
+
+                $ours.trigger('change');
+            };
+
+            var onTheirSelectChange = function() {
+                // Check for duplicate changes
+                if (change) {
+                    change = false;
+                    return;
+                }
+
+                // Select chosen option in our element
+                $ours
+                    .prop('selectedIndex', $theirs.prop('selectedIndex'));
+
+                change = true;
+                
+                $ours.trigger('change');
+            };
+
+            var detectTheirInputChange = function() {
+                if ($theirs.val() !== theirValue) {
+                    onTheirInputChange();
+                }
+
+                setTimeout(detectTheirInputChange, 50);
+            };
+
+            if ($ours.is('input')) {
+                $ours.on('change keyup', onOurInputChange);
+
+                // Mutation Observers can't detect value changes
+                // http://stackoverflow.com/questions/12048645/how-do-you-get-a-mutation-observer-to-detect-a-value-change-of-a-textarea
+                detectTheirInputChange();
+            }
+            else if ($ours.is('select')) {
+                $ours.on('change', onOurSelectChange);
+                $theirs.on('change', onTheirSelectChange);
+            }
         });
 
         this.addHandler('state', function($ours, $theirs) {
@@ -99,32 +184,21 @@ function($) {
         });
 
         this.addHandler('html', function($ours, $theirs) {
-            $ours.html($theirs.html());
-        });
+            var ourHTML = $ours.html();
 
-        this.addHandler('change', function($ours, $theirs) {
-            var onInputChange = function() {
-                // Probably only need to set the value property, but we
-                // also set the attribute to be safe
-                $theirs.val($ours.val());
+            var update = function() {
+                var theirHTML = $theirs.html();
 
-                $theirs.trigger('change');
+                if (theirHTML !== ourHTML) {
+                    $ours.html(theirHTML);
+
+                    ourHTML = theirHTML;
+                }
+
+                setTimeout(update, 500);
             };
 
-            var onSelectChange = function() {
-                // Select chosen option in the linked element
-                $theirs
-                    .prop('selectedIndex', $ours.prop('selectedIndex'));
-
-                $theirs.trigger('change');
-            };
-
-            if ($ours.is('input')) {
-                $ours.on('change', onInputChange);
-            }
-            else if ($ours.is('select')) {
-                $ours.on('change', onSelectChange);
-            }
+            update();
         });
 
         this.addHandler('options', function($ours, $theirs) {
@@ -145,6 +219,10 @@ function($) {
                 $linked = $(element);
             }
 
+            if (!$linked.length) {
+                return;
+            }
+
             if (handlers) {
                 handlers = handlers.split(' ');
 
@@ -155,7 +233,14 @@ function($) {
                 }
             }
             else if (oculus.defaultHandler) {
-                oculus.setupHandler(oculus.defaultHandler, $self, $linked);
+                // SELECT and INPUT elements 
+                if ($self.is('select') || $self.is('input')) {
+                    oculus.setupHandler('value', $self, $linked);
+                }
+                else {
+
+                    oculus.setupHandler(oculus.defaultHandler, $self, $linked);
+                }
             }
         });
 
@@ -167,7 +252,8 @@ function($) {
 
     Oculus.prototype.setupHandler = function(name, $ours, $theirs) {
         if (!this.handlers.hasOwnProperty(name)) {
-            throw "Handler with name '" + name + "' not found";
+            console.error("Handler with name '" + name + "' not found", $ours);
+            return;
         }
 
         this.handlers[name]($ours, $theirs);
