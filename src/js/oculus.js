@@ -88,6 +88,14 @@ function($) {
                 // also set the attribute to be safe
                 $theirs.val($ours.val());
 
+                $theirs.prop('disabled', $ours.prop('disabled'));
+                $theirs.prop('readonly', $ours.prop('readonly'));
+
+                if ($ours.attr('type') === 'checkbox' || $ours.attr('type') === 'radio') {
+                    $theirs.prop('checked', $ours.prop('checked'));
+                    $theirs[0].checked = $ours[0].checked;
+                }
+
                 change = true;
 
                 $theirs.trigger('change');
@@ -152,6 +160,7 @@ function($) {
 
             if ($ours.is('input')) {
                 $ours.on('change keyup', onOurInputChange);
+                $theirs.on('change', onTheirInputChange);
 
                 // Mutation Observers can't detect value changes
                 // http://stackoverflow.com/questions/12048645/how-do-you-get-a-mutation-observer-to-detect-a-value-change-of-a-textarea
@@ -166,11 +175,16 @@ function($) {
         this.addHandler('state', function($ours, $theirs) {
             var update = function() {
                 $ours.prop('disabled', $theirs.prop('disabled'));
-                $ours.prop('selected', $theirs.prop('selected'));
-                $ours.prop('checked', $theirs.prop('checked'));
                 $ours.prop('readonly', $theirs.prop('readonly'));
 
-                $ours[0].checked = $theirs[0].checked;
+                if ($theirs.is('option')) {
+                    $ours.prop('selected', $theirs.prop('selected'));
+                }
+
+                if ($theirs.attr('type') === 'checkbox' || $theirs.attr('type') === 'radio') {
+                    $ours.prop('checked', $theirs.prop('checked'));
+                    $ours[0].checked = $theirs[0].checked;
+                }
             };
 
             var observer = new MutationObserver(function() {
