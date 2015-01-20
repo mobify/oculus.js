@@ -4,6 +4,11 @@
   -------
   Bridging the gap between Adaptive and Desktop.
 
+  TODO:
+
+  - If the original form has validation, the browser freaks out because the
+  elements are invisible
+
 */
  define([
     '$'
@@ -13,18 +18,60 @@ function($) {
         this.handlers = [];
         this.defaultHandler = null;
     }
+    
+    function getRandomInt(min, max) {
+      return Math.floor(Math.random() * (max - min)) + min;
+    }
+
+    Oculus.getSelectorForElement = function($element) {
+        if (!$element.length) {
+            return;
+        }
+
+        var randomClass = 'js-uuid-' + getRandomInt(10000, 100000);
+
+        $element.addClass(randomClass);
+
+        return '.' + randomClass;
+    };
 
     Oculus.prototype.setDefaultHandler = function(name) {
         this.defaultHandler = name;
+    };
+
+    Oculus.prototype.emit = function(event, $ours, $theirs) {
+        $ours.trigger($.Event('oculus:' + event, {
+            $theirs: $theirs,
+            bubbles: false
+        }));
     };
 
     Oculus.prototype.init = function() {
         var oculus = this;
 
         this.addHandler('visibility', function($ours, $theirs) {
-            $ours.css('display', $theirs.css('display'));
+            var update = function() {
+                $ours.css('display', $theirs.css('display'));
+
+                /* TODO:
+                1. Find a better way to transmit data to consumers
+                2. Add emit to the other handlers as well
+                */
+                oculus.emit('visibility', $ours, $theirs);
+            };
+
+            var observer = new MutationObserver(function() {
+                // We don't really care what mutation happened, we just want to
+                // sync everything in-case
+                update();
+            });
+
+            observer.observe($theirs[0], { attributes: true, childList: false, characterData: false, subtree: false });
+
+            update();
         });
 
+        // TODO: Get this working for touch events as well
         this.addHandler('click', function($ours, $theirs) {
             var onClick = function(e) {
                 var event = new MouseEvent('click');
@@ -38,17 +85,6 @@ function($) {
                     e.metaKey, e.altKey, e.shiftKey, e.metaKey,
                     e.button, e.relatedTarget
                 );
-
-                var overrideFuncs = ['preventDefault', 'stopPropagation', 'stopImmediatePropagation'];
-
-                $.each(overrideFuncs, function(i, funcName) {
-                    var originalFunc = event[funcName];
-
-                    event[funcName] = function() {
-                        e[funcName]();
-                        return originalFunc.apply(this, arguments);
-                    };
-                });
 
                 var result = $theirs.trigger(event);
 
@@ -187,6 +223,14 @@ function($) {
                 }
             };
 
+            if ($ours.is('select')) {
+                $ours.html($theirs.html());
+            }
+
+            if ($theirs.is('[type="hidden"]')) {
+                $ours.hide();
+            }
+
             var observer = new MutationObserver(function() {
                 // We don't really care what mutation happened, we just want to sync everything incase
                 update();
@@ -198,6 +242,7 @@ function($) {
         });
 
         this.addHandler('html', function($ours, $theirs) {
+            var args = ($ours.attr('data-oculus-handler-args') || '').split(' ');
             var ourHTML = $ours.html();
 
             var update = function() {
@@ -205,6 +250,10 @@ function($) {
 
                 if (theirHTML !== ourHTML) {
                     $ours.html(theirHTML);
+
+                    if ($.inArray('strip-style', args) !== null) {
+                        $ours.find('[style]').removeAttr('style');
+                    }
 
                     ourHTML = theirHTML;
                 }
@@ -222,55 +271,61 @@ function($) {
         this.setDefaultHandler('click');
 
         // Initialize handlers on elements
-        $('[data-oculus-element]').each(function() {
-            var $self = $(this);
-            var handlers = $self.attr('data-oculus-handlers');
-            var element = $self.attr('data-oculus-element');
-            var $linked = element;
+        function initHandlers() {
+            $('[data-oculus-element]:not(.js-oculus-setup)').each(function() {
+                var $self = $(this);
+                var handlers = $self.attr('data-oculus-handlers');
+                var element = $self.attr('data-oculus-element');
+                var $linked = element;
 
-            // Assign linked element to the result of the selector
-            if (typeof element === 'string') {
-                $linked = $(element);
-            }
+                $self.addClass('js-oculus-setup');
 
-            if (!$linked.length) {
-                return;
-            }
-
-            if (handlers) {
-                handlers = handlers.split(' ');
-
-                for (var i = 0, l = handlers.length; i < l; ++i) {
-                    var eventName = handlers[i];
-
-                    oculus.setupHandler(eventName, $self, $linked);
+                // Assign linked element to the result of the selector
+                if (typeof element === 'string') {
+                    $linked = $(element);
                 }
-            }
-            else if (oculus.defaultHandler) {
-                // SELECT and INPUT elements 
-                if ($self.is('select') || $self.is('input')) {
-                    oculus.setupHandler('value', $self, $linked);
-                }
-                else {
 
-                    oculus.setupHandler(oculus.defaultHandler, $self, $linked);
+                if (!$linked.length) {
+                    return;
                 }
-            }
-        });
 
+                if (handlers) {
+                    handlers = handlers.split(' ');
+
+                    for (var i = 0, l = handlers.length; i < l; ++i) {
+                        var eventName = handlers[i];
+
+                        oculus.setupHandler(eventName, $self, $linked);
+                    }
+                }
+                else if (oculus.defaultHandler) {
+                    // SELECT and INPUT elements 
+                    if ($self.is('select') || $self.is('input')) {
+                        oculus.setupHandler('value', $self, $linked);
+                    }
+                    else {
+                        oculus.setupHandler(oculus.defaultHandler, $self, $linked);
+                    }
+                }
+            });
+
+            setTimeout(initHandlers, 50);
+        }
+
+        initHandlers();
     };
 
     Oculus.prototype.addHandler = function(name, handler) {
         this.handlers[name] = handler;
     };
 
-    Oculus.prototype.setupHandler = function(name, $ours, $theirs) {
+    Oculus.prototype.setupHandler = function(name, $ours, $theirs, callback) {
         if (!this.handlers.hasOwnProperty(name)) {
             console.error("Handler with name '" + name + "' not found", $ours);
             return;
         }
 
-        this.handlers[name]($ours, $theirs);
+        this.handlers[name]($ours, $theirs, callback);
     };
 
     return Oculus;
